@@ -1,11 +1,6 @@
 import requests,pickle
 from time import time
-
-login='ololo@mail.ru'
-password='ololopas'
-pickle_file='last_data.bin'
-grafana_host='ololografana'
-sitenames=['ololosite.ru','ololosite88.ru']
+from settings import *
 
 class parsemailru():
     def __init__(self,login,password):
@@ -37,9 +32,9 @@ class parsemailru():
         if not ourtable:
             return False
         for item in ourtable.findAll("tr"):
-            blocklink = item.findAll("a")
+            blocklink = item.findAll("a", {"class": ""})
             if blocklink:
-                sitename=blocklink[1].text
+                sitename=blocklink[-1].text
                 total = item.find("td", {"class": "statistic-table__total statistic-table__item"}).text.replace('\xa0', '')
                 if not total:total=0
                 spam = item.find("td", {"class": "statistic-table__click-spam"}).text.replace('\xa0', '')
@@ -75,25 +70,31 @@ class parsemailru():
         '''Procedure to calculate count avg value of statuses and send it to grafana'''
         import socket,re,time
         hostname = socket.gethostname().split(".")
+        #hostname = ['mx1-1','sd37','ru']
         #Our servers has FQDN hostnames
         datacenter = re.search(r'[A-z]+', hostname[1]).group(0)
 
         # Prefix path of resourse in collectd
         path_to_data='%s.%s.%s.mailru' % (datacenter, hostname[1], hostname[0])
-        data=""
+        msg=""
         # Output result must be counts/1minute for all cron periods
         k=(self.timenow-float(self.pickleobjects["lasttime"]))/60
         for i in self.data:
             for j in self.pickleobjects["data"]:
                 if i["sitename"]==j["sitename"] and i["sitename"]in sitenames:
-                    data+='%s.%s.total %d %d \n' % (path_to_data,i["sitename"].replace('.', '_'),(i["total"]-j["total"])/k,self.timenow)
-                    data+='%s.%s.spam %d %d \n' % (path_to_data,i["sitename"].replace('.', '_'),(i["spam"]-j["spam"])/k,self.timenow)
+                    total=(i["total"]-j["total"])/k
+                    spam=(i["spam"]-j["spam"])/k
+                    if total >0 and spam > 0:
+                        msg+='%s.%s.total %d %d \n' % (path_to_data,i["sitename"].replace('.', '_'),total,self.timenow)
+                        msg+='%s.%s.spam %d %d \n' % (path_to_data,i["sitename"].replace('.', '_'),spam,self.timenow)
 
-        print(data)
+        print(msg)
         conn = socket.create_connection((grafana_host, 2003))
-        conn.sendall(data.encode())
+        conn.sendall(msg.encode())
         conn.close()
-
+        #Запоминаем последнийе параметры в переменную - славарь, которую потом запишем в файл
+        self.pickleobjects["data"] = self.data
+        self.pickleobjects["lasttime"] = self.timenow
 
 if __name__=="__main__":
     cls=parsemailru(login,password)
